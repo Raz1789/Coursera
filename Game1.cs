@@ -1,56 +1,62 @@
+using System;
+using System.Collections.Generic;
+
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using System.Collections.Generic;
-using System;
-using TeddyMineExplosion;
 
-namespace ProgrammingAssignment5
+namespace GameProject
 {
     /// <summary>
     /// This is the main type for your game.
     /// </summary>
     public class Game1 : Game
     {
-        #region Fields
         GraphicsDeviceManager graphics;
         SpriteBatch spriteBatch;
 
-        // Window Dimensions variables
-        const int WindowWidth = 800;
-        const int WindowHeight = 600;
-
-        //Game Entity Lists variables
-        List<Mine> mines = new List<Mine>();
+        // game objects. Using inheritance would make this
+        // easier, but inheritance isn't a GDD 1200 topic
+        Burger burger;
         List<TeddyBear> bears = new List<TeddyBear>();
+        static List<Projectile> projectiles = new List<Projectile>();
         List<Explosion> explosions = new List<Explosion>();
 
-        //Texture2Ds variables
-        Texture2D explosionTx2D;
-        Texture2D mineTx2D;
-        Texture2D bearTx2D;
+        // projectile and explosion sprites. Saved so they don't have to
+        // be loaded every time projectiles or explosions are created
+        static Texture2D frenchFriesSprite;
+        static Texture2D teddyBearProjectileSprite;
+        static Texture2D explosionSpriteStrip;
 
-        //Mouse Variables
-        MouseState mouse;
-        ButtonState previousLeftButtonPress = ButtonState.Released;
+        // scoring support
+        int score = 0;
+        string scoreString = GameConstants.ScorePrefix + 0;
 
-        //Support Variables
-        float timeCounter = 0f;
-        int spawnTime;
-        Random rand;
+        // health support
+        string healthString = GameConstants.HealthPrefix +
+            GameConstants.BurgerInitialHealth;
+        bool burgerDead = false;
 
-        #endregion
+        // text display support
+        SpriteFont font;
 
-        #region In-built functions
+        // sound effects
+        SoundEffect burgerDamage;
+        SoundEffect burgerDeath;
+        SoundEffect burgerShot;
+        SoundEffect explosion;
+        SoundEffect teddyBounce;
+        SoundEffect teddyShot;
+
         public Game1()
         {
             graphics = new GraphicsDeviceManager(this);
             Content.RootDirectory = "Content";
-            graphics.PreferredBackBufferWidth = WindowWidth;
-            graphics.PreferredBackBufferHeight = WindowHeight;
-            rand = new Random();
-            SpawnTimeRandomGen();
-            IsMouseVisible = true;
+
+            // set resolution
+            graphics.PreferredBackBufferWidth = GameConstants.WindowWidth;
+            graphics.PreferredBackBufferHeight = GameConstants.WindowHeight;
         }
 
         /// <summary>
@@ -61,7 +67,7 @@ namespace ProgrammingAssignment5
         /// </summary>
         protected override void Initialize()
         {
-            // TODO: Add your initialization logic here
+            RandomNumberGenerator.Initialize();
 
             base.Initialize();
         }
@@ -75,11 +81,24 @@ namespace ProgrammingAssignment5
             // Create a new SpriteBatch, which can be used to draw textures.
             spriteBatch = new SpriteBatch(GraphicsDevice);
 
-            // TODO: use this.Content to load your game content here
+            burger = new Burger(Content, "graphics/burger", (GameConstants.WindowWidth / 2), (GameConstants.WindowHeight * 7 / 8), burgerShot);
 
-            explosionTx2D = Content.Load<Texture2D>(@"graphics/explosion");
-            mineTx2D = Content.Load<Texture2D>(@"graphics/mine");
-            bearTx2D = Content.Load<Texture2D>(@"graphics/teddybear");
+            for(int i = 0; i<=GameConstants.MaxBears;i++)
+                SpawnBear();
+
+            // load audio content
+
+            // load sprite font
+
+            // load projectile and explosion sprites
+            teddyBearProjectileSprite = Content.Load<Texture2D>(@"graphics/teddybearprojectile");
+            frenchFriesSprite = Content.Load<Texture2D>(@"graphics/frenchfries");
+            explosionSpriteStrip = Content.Load<Texture2D>(@"graphics/explosion");
+
+
+            // add initial game objects
+
+            // set initial health and score strings
         }
 
         /// <summary>
@@ -101,59 +120,91 @@ namespace ProgrammingAssignment5
             if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
                 Exit();
 
-            // TODO: Add your update logic here
-            mouse = Mouse.GetState();
+            // get current mouse state and update burger
+            MouseState mouse = Mouse.GetState();
 
-            //TimeCounter for bear spawn
-            timeCounter += gameTime.ElapsedGameTime.Milliseconds;
+            burger.Update(gameTime, mouse);
 
-            //Mine Logic
-            if (mouse.LeftButton == ButtonState.Released && previousLeftButtonPress == ButtonState.Pressed)
+            // update other game objects
+            foreach (TeddyBear bear in bears)
             {
-                Mine mine = new Mine(mineTx2D, mouse.X, mouse.Y);
-                mines.Add(mine);
+                bear.Update(gameTime);
+            }
+            foreach (Projectile projectile in projectiles)
+            {
+                projectile.Update(gameTime);
+            }
+            foreach (Explosion explosion in explosions)
+            {
+                explosion.Update(gameTime);
             }
 
-            previousLeftButtonPress = mouse.LeftButton;
-
-            //bear Spawning
-            if (timeCounter > spawnTime * 1000)
+            // check and resolve collisions between teddy bears
+            for(int i = 0; i < bears.Count; i++)
             {
-                timeCounter = 0f;
-                TeddyBear bear = new TeddyBear(bearTx2D, VelocityRandomGen(), WindowWidth, WindowHeight);
-                bears.Add(bear);
-                SpawnTimeRandomGen();  
-            }
-
-            
-
-            //Collision Detection
-            for (int i = mines.Count - 1; i >=0; i--)
-            {
-                if (mines[i].Active) {
-                    for (int j = bears.Count - 1; j >= 0; j--)
+                for(int j = i + 1; j<bears.Count; j++)
+                {
+                    if (bears[i].Active && bears[j].Active) // checking if both bears are active
                     {
-                        if (bears[j].Active && mines[i].CollisionRectangle.Intersects(bears[j].CollisionRectangle)) {
-                            Explosion explosion = new Explosion(explosionTx2D, mines[i].CollisionRectangle.Center.X, mines[i].CollisionRectangle.Center.Y);
-                            explosions.Add(explosion);
-                            mines[i].Active = false;
-                            bears[j].Active = false;
+                        //getting the collision Resolution Information
+                        CollisionResolutionInfo collisionResoutionInfo = CollisionUtils.CheckCollision(gameTime.ElapsedGameTime.Milliseconds, GameConstants.WindowWidth, GameConstants.WindowHeight, bears[i].Velocity, bears[i].CollisionRectangle, bears[j].Velocity, bears[j].CollisionRectangle);
+                        if(collisionResoutionInfo != null) // if not null
+                        {
+                            //Solving for First bear
+                            if (collisionResoutionInfo.FirstOutOfBounds)
+                            {
+                                //forced out of the game world
+                                bears[i].Active = false;
+                            }
+                            else
+                            {
+                                //Setting new Velocity and DrawRectangle
+                                bears[i].DrawRectangle = collisionResoutionInfo.FirstDrawRectangle;
+                                bears[i].Velocity = collisionResoutionInfo.FirstVelocity;
+
+                            }
+                            //Solving for Second bear
+                            if (collisionResoutionInfo.SecondOutOfBounds)
+                            {
+                                //forced out of the game world
+                                bears[j].Active = false;
+                            }
+                            else
+                            {
+                                //Setting new Velocity and DrawRectangle
+                                bears[j].DrawRectangle = collisionResoutionInfo.SecondDrawRectangle;
+                                bears[j].Velocity = collisionResoutionInfo.SecondVelocity;
+
+                            }
                         }
                     }
+                    
                 }
             }
 
-            //Game Entity Removal
-            //Mine Removal
-            for (int i = mines.Count - 1; i >= 0; i--)
+            // check and resolve collisions between burger and teddy bears
+
+            // check and resolve collisions between burger and projectiles
+
+            // check and resolve collisions between teddy bears and projectiles
+            foreach (TeddyBear bear in bears)
             {
-                if(!mines[i].Active)
+                foreach (Projectile projectile in projectiles)
                 {
-                    mines.RemoveAt(i);
+                    //Checking whether the Projectile Type
+                    if (projectile.Type == ProjectileType.FrenchFries)
+                        if (bear.CollisionRectangle.Intersects(projectile.CollisionRectangle)) // Checking for collision
+                        {
+                            //Collision Activities when detected
+                            bear.Active = false;
+                            projectile.Active = false;
+                            Explosion explosion = new Explosion(explosionSpriteStrip, bear.CollisionRectangle.Center.X, bear.CollisionRectangle.Center.Y);
+                            explosions.Add(explosion);
+                        }
                 }
             }
 
-            //Bear Removal
+            // clean out inactive teddy bears and add new ones as necessary
             for (int i = bears.Count - 1; i >= 0; i--)
             {
                 if (!bears[i].Active)
@@ -162,26 +213,21 @@ namespace ProgrammingAssignment5
                 }
             }
 
-            //Explosion Removal
+            // clean out inactive projectiles
+            for (int i = projectiles.Count - 1; i >= 0; i--)
+            {
+                if (!projectiles[i].Active)
+                {
+                    projectiles.RemoveAt(i);
+                }
+            }
+            // clean out finished explosions
             for (int i = explosions.Count - 1; i >= 0; i--)
             {
-                if (!explosions[i].Playing)
+                if (explosions[i].Finished)
                 {
                     explosions.RemoveAt(i);
                 }
-            }
-
-            //Game Entity Updates
-            //bear update
-            foreach (TeddyBear bear in bears)
-            {
-                bear.Update(gameTime);
-            }
-
-            //Explosion Update
-            foreach (Explosion explosion in explosions)
-            {
-                explosion.Update(gameTime);
             }
 
             base.Update(gameTime);
@@ -195,50 +241,129 @@ namespace ProgrammingAssignment5
         {
             GraphicsDevice.Clear(Color.CornflowerBlue);
 
-            // TODO: Add your drawing code here
-
             spriteBatch.Begin();
 
-            foreach (Mine mine in mines)
-            {
-                mine.Draw(spriteBatch);
-            }
+            // draw game objects
+            burger.Draw(spriteBatch);
             foreach (TeddyBear bear in bears)
             {
                 bear.Draw(spriteBatch);
+            }
+            foreach (Projectile projectile in projectiles)
+            {
+                projectile.Draw(spriteBatch);
             }
             foreach (Explosion explosion in explosions)
             {
                 explosion.Draw(spriteBatch);
             }
 
-            spriteBatch.End();
+            // draw score and health
 
+            spriteBatch.End();
 
             base.Draw(gameTime);
         }
-        #endregion
 
-        #region Support Methods
+        #region Public methods
 
         /// <summary>
-        /// Generates Random Spawn Time
-        /// </summary>
-        private void SpawnTimeRandomGen()
+        /// Gets the projectile sprite for the given projectile type
+        /// </summary>s
+        /// <param name="type">the projectile type</param>
+        /// <returns>the projectile sprite for the type</returns>
+        public static Texture2D GetProjectileSprite(ProjectileType type)
         {
-            spawnTime = rand.Next(1,4);
+            // replace with code to return correct projectile sprite based on projectile type
+            if (type == ProjectileType.FrenchFries)
+                return frenchFriesSprite;
+            else
+                return teddyBearProjectileSprite;
         }
 
         /// <summary>
-        /// Generates Random X and Y velocities
+        /// Adds the given projectile to the game
         /// </summary>
-        /// <returns>Vector2 Velocity</returns>
-        private Vector2 VelocityRandomGen()
+        /// <param name="projectile">the projectile to add</param>
+        public static void AddProjectile(Projectile projectile)
         {
-            return new Vector2(rand.Next(-5,5)/10f, rand.Next(-5,5) / 10f);
+            projectiles.Add(projectile);
+        }
+
+        #endregion
+
+        #region Private methods
+
+        /// <summary>
+        /// Spawns a new teddy bear at a random location
+        /// </summary>
+        private void SpawnBear()
+        {
+            // generate random location
+            int xBear = GetRandomLocation(GameConstants.SpawnBorderSize, GameConstants.WindowWidth - GameConstants.SpawnBorderSize * 2);
+            int yBear = GetRandomLocation(GameConstants.SpawnBorderSize, GameConstants.WindowHeight - GameConstants.SpawnBorderSize * 2);
+
+            // generate random velocity
+
+            float randVel = GameConstants.MinBearSpeed + RandomNumberGenerator.NextFloat(GameConstants.BearSpeedRange - GameConstants.MinBearSpeed);
+
+            float randAng = RandomNumberGenerator.NextFloat((float)Math.PI / 2);
+
+            Vector2 velBear = new Vector2(randVel * (float)Math.Cos(randAng), randVel * (float)Math.Sin(randAng));
+
+            // create new bear
+
+            TeddyBear newBear = new TeddyBear(Content, "graphics/teddybear", xBear, yBear, velBear, null, null);
+
+            // make sure we don't spawn into a collision
+
+            // add new bear to list
+            bears.Add(newBear);
+
+        }
+
+        /// <summary>
+        /// Gets a random location using the given min and range
+        /// </summary>
+        /// <param name="min">the minimum</param>
+        /// <param name="range">the range</param>
+        /// <returns>the random location</returns>
+        private int GetRandomLocation(int min, int range)
+        {
+            return min + RandomNumberGenerator.Next(range);
+        }
+
+        /// <summary>
+        /// Gets a list of collision rectangles for all the objects in the game world
+        /// </summary>
+        /// <returns>the list of collision rectangles</returns>
+        private List<Rectangle> GetCollisionRectangles()
+        {
+            List<Rectangle> collisionRectangles = new List<Rectangle>();
+            collisionRectangles.Add(burger.CollisionRectangle);
+            foreach (TeddyBear bear in bears)
+            {
+                collisionRectangles.Add(bear.CollisionRectangle);
+            }
+            foreach (Projectile projectile in projectiles)
+            {
+                collisionRectangles.Add(projectile.CollisionRectangle);
+            }
+            foreach (Explosion explosion in explosions)
+            {
+                collisionRectangles.Add(explosion.CollisionRectangle);
+            }
+            return collisionRectangles;
+        }
+
+        /// <summary>
+        /// Checks to see if the burger has just been killed
+        /// </summary>
+        private void CheckBurgerKill()
+        {
+
         }
 
         #endregion
     }
-
 }
