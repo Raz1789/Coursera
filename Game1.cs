@@ -1,12 +1,10 @@
-using System;
 using System.Collections.Generic;
-
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using XnaCards;
 
-namespace GameProject
+namespace ProgrammingAssignment6
 {
     /// <summary>
     /// This is the main type for your game.
@@ -16,47 +14,64 @@ namespace GameProject
         GraphicsDeviceManager graphics;
         SpriteBatch spriteBatch;
 
-        // game objects. Using inheritance would make this
-        // easier, but inheritance isn't a GDD 1200 topic
-        Burger burger;
-        List<TeddyBear> bears = new List<TeddyBear>();
-        static List<Projectile> projectiles = new List<Projectile>();
-        List<Explosion> explosions = new List<Explosion>();
+        const int WindowWidth = 800;
+        const int WindowHeight = 600;
 
-        // projectile and explosion sprites. Saved so they don't have to
-        // be loaded every time projectiles or explosions are created
-        static Texture2D frenchFriesSprite;
-        static Texture2D teddyBearProjectileSprite;
-        static Texture2D explosionSpriteStrip;
+        // max valid blockjuck score for a hand
+        const int MaxHandValue = 21;
 
-        // scoring support
-        int score = 0;
-        string scoreString = GameConstants.ScorePrefix + 0;
+        // deck and hands
+        Deck deck;
+        List<Card> dealerHand = new List<Card>();
+        List<Card> playerHand = new List<Card>();
 
-        // health support
-        string healthString = GameConstants.HealthPrefix +
-            GameConstants.BurgerInitialHealth;
-        bool burgerDead = false;
+        // hand placement
+        const int TopCardOffset = 100;
+        const int HorizontalCardOffset = 150;
+        const int VerticalCardSpacing = 125;
 
-        // text display support
-        SpriteFont font;
+        // messages
+        SpriteFont messageFont;
+        const string ScoreMessagePrefix = "Score: ";
+        Message playerScoreMessage;
+        Message dealerScoreMessage;
+        Message winnerMessage;
+		List<Message> messages = new List<Message>();
 
-        // sound effects
-        SoundEffect burgerDamage;
-        SoundEffect burgerDeath;
-        SoundEffect burgerShot;
-        SoundEffect explosion;
-        SoundEffect teddyBounce;
-        SoundEffect teddyShot;
+        // message placement
+        const int ScoreMessageTopOffset = 25;
+        const int HorizontalMessageOffset = HorizontalCardOffset;
+        Vector2 winnerMessageLocation = new Vector2(WindowWidth / 2,
+            WindowHeight / 2);
+
+        // menu buttons
+        Texture2D quitButtonSprite;
+        List<MenuButton> menuButtons = new List<MenuButton>();
+
+        // menu button placement
+        const int TopMenuButtonOffset = TopCardOffset;
+        const int QuitMenuButtonOffset = WindowHeight - TopCardOffset;
+        const int HorizontalMenuButtonOffset = WindowWidth / 2;
+        const int VerticalMenuButtonSpacing = 125;
+
+        // use to detect hand over when player and dealer didn't hit
+        bool playerHit = false;
+        bool dealerHit = false;
+
+        // game state tracking
+        static GameState currentState = GameState.WaitingForPlayer;
 
         public Game1()
         {
             graphics = new GraphicsDeviceManager(this);
             Content.RootDirectory = "Content";
 
-            // set resolution
-            graphics.PreferredBackBufferWidth = GameConstants.WindowWidth;
-            graphics.PreferredBackBufferHeight = GameConstants.WindowHeight;
+            // setting game screen resolution
+            graphics.PreferredBackBufferWidth = WindowWidth;
+            graphics.PreferredBackBufferHeight = WindowHeight;
+
+            //setting mouse to visible
+            IsMouseVisible = true;
         }
 
         /// <summary>
@@ -67,7 +82,7 @@ namespace GameProject
         /// </summary>
         protected override void Initialize()
         {
-            RandomNumberGenerator.Initialize();
+            // TODO: Add your initialization logic here
 
             base.Initialize();
         }
@@ -81,24 +96,58 @@ namespace GameProject
             // Create a new SpriteBatch, which can be used to draw textures.
             spriteBatch = new SpriteBatch(GraphicsDevice);
 
-            burger = new Burger(Content, "graphics/burger", (GameConstants.WindowWidth / 2), (GameConstants.WindowHeight * 7 / 8), burgerShot);
+            // create and shuffle deck
+            deck = new Deck(Content, WindowWidth / 2, WindowHeight / 2 + 100);
+            deck.Shuffle();
 
-            for(int i = 0; i<=GameConstants.MaxBears;i++)
-                SpawnBear();
+            // first player card
+            Card tempCard = deck.TakeTopCard();
+            tempCard.FlipOver();
+            tempCard.X = HorizontalCardOffset;
+            tempCard.Y = TopCardOffset;
+            playerHand.Add(tempCard);
 
-            // load audio content
+            // first dealer card
+            tempCard = deck.TakeTopCard();
+            tempCard.X = WindowWidth - HorizontalCardOffset;
+            tempCard.Y = TopCardOffset;
+            dealerHand.Add(tempCard);
 
-            // load sprite font
+            // second player card
+            tempCard = deck.TakeTopCard();
+            tempCard.FlipOver();
+            tempCard.X = HorizontalCardOffset;
+            tempCard.Y = TopCardOffset + VerticalCardSpacing;
+            playerHand.Add(tempCard);
 
-            // load projectile and explosion sprites
-            teddyBearProjectileSprite = Content.Load<Texture2D>(@"graphics/teddybearprojectile");
-            frenchFriesSprite = Content.Load<Texture2D>(@"graphics/frenchfries");
-            explosionSpriteStrip = Content.Load<Texture2D>(@"graphics/explosion");
+            // second dealer card
+            tempCard = deck.TakeTopCard();
+            tempCard.FlipOver();
+            tempCard.X = WindowWidth - HorizontalCardOffset;
+            tempCard.Y = TopCardOffset+ VerticalCardSpacing;
+            dealerHand.Add(tempCard);
 
+            // load sprite font, create message for player score and add to list
+            messageFont = Content.Load<SpriteFont>(@"fonts\Arial24");
+            playerScoreMessage = new Message(ScoreMessagePrefix + GetBlockjuckScore(playerHand).ToString(),
+                messageFont,
+                new Vector2(HorizontalMessageOffset, ScoreMessageTopOffset));
+            messages.Add(playerScoreMessage);
+            
 
-            // add initial game objects
+            // load quit button sprite for later use
+            quitButtonSprite = Content.Load<Texture2D>(@"graphics\quitbutton");
 
-            // set initial health and score strings
+            // create hit button and add to list
+            menuButtons.Add(
+                new MenuButton(Content.Load<Texture2D>(@"graphics\hitbutton"),
+                new Vector2(HorizontalMenuButtonOffset, TopMenuButtonOffset ), GameState.PlayerHitting));
+
+            // create stand button and add to list
+            menuButtons.Add(
+                new MenuButton(Content.Load<Texture2D>(@"graphics\standbutton"),
+                new Vector2(HorizontalMenuButtonOffset, VerticalMenuButtonSpacing + TopMenuButtonOffset), GameState.WaitingForDealer));
+
         }
 
         /// <summary>
@@ -120,114 +169,105 @@ namespace GameProject
             if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
                 Exit();
 
-            // get current mouse state and update burger
+            // temporary variables
             MouseState mouse = Mouse.GetState();
+            Card tempCard;
 
-            burger.Update(gameTime, mouse);
-
-            // update other game objects
-            foreach (TeddyBear bear in bears)
+            // update menu buttons as appropriate
+            foreach (MenuButton menubutton in menuButtons)
             {
-                bear.Update(gameTime);
-            }
-            foreach (Projectile projectile in projectiles)
-            {
-                projectile.Update(gameTime);
-            }
-            foreach (Explosion explosion in explosions)
-            {
-                explosion.Update(gameTime);
+                menubutton.Update(mouse);
             }
 
-            // check and resolve collisions between teddy bears
-            for(int i = 0; i < bears.Count; i++)
+            // game state-specific processing
+            switch(currentState)
             {
-                for(int j = i + 1; j<bears.Count; j++)
-                {
-                    if (bears[i].Active && bears[j].Active) // checking if both bears are active
+                case GameState.WaitingForPlayer:
+                    playerHit = false;
+                    break;
+                case GameState.PlayerHitting:
+                    tempCard = deck.TakeTopCard();
+                    tempCard.FlipOver();
+                    tempCard.X = HorizontalCardOffset;
+                    tempCard.Y = TopCardOffset + VerticalCardSpacing * (playerHand.Count);
+                    playerHand.Add(tempCard);
+                    playerScoreMessage.Text = ScoreMessagePrefix + GetBlockjuckScore(playerHand).ToString();
+                    playerHit = true;
+                    if (GetBlockjuckScore(playerHand) == MaxHandValue)
+                        ChangeState(GameState.CheckingHandOver);
+                    else
+                        ChangeState(GameState.WaitingForDealer);
+                    break;
+                case GameState.WaitingForDealer:
+                    if(GetBlockjuckScore(dealerHand) <= 16)
                     {
-                        //getting the collision Resolution Information
-                        CollisionResolutionInfo collisionResoutionInfo = CollisionUtils.CheckCollision(gameTime.ElapsedGameTime.Milliseconds, GameConstants.WindowWidth, GameConstants.WindowHeight, bears[i].Velocity, bears[i].CollisionRectangle, bears[j].Velocity, bears[j].CollisionRectangle);
-                        if(collisionResoutionInfo != null) // if not null
-                        {
-                            //Solving for First bear
-                            if (collisionResoutionInfo.FirstOutOfBounds)
-                            {
-                                //forced out of the game world
-                                bears[i].Active = false;
-                            }
-                            else
-                            {
-                                //Setting new Velocity and DrawRectangle
-                                bears[i].DrawRectangle = collisionResoutionInfo.FirstDrawRectangle;
-                                bears[i].Velocity = collisionResoutionInfo.FirstVelocity;
-
-                            }
-                            //Solving for Second bear
-                            if (collisionResoutionInfo.SecondOutOfBounds)
-                            {
-                                //forced out of the game world
-                                bears[j].Active = false;
-                            }
-                            else
-                            {
-                                //Setting new Velocity and DrawRectangle
-                                bears[j].DrawRectangle = collisionResoutionInfo.SecondDrawRectangle;
-                                bears[j].Velocity = collisionResoutionInfo.SecondVelocity;
-
-                            }
-                        }
+                        ChangeState(GameState.DealerHitting);
+                    } else
+                    {
+                        dealerHit = false;
+                        ChangeState(GameState.CheckingHandOver);
                     }
-                    
-                }
-            }
+                    break;
+                case GameState.DealerHitting:
+                    tempCard = deck.TakeTopCard();
+                    tempCard.FlipOver();
+                    tempCard.X = WindowWidth - HorizontalCardOffset;
+                    tempCard.Y = TopCardOffset + VerticalCardSpacing * (dealerHand.Count);
+                    dealerHand.Add(tempCard);
+                    dealerHit = true;
+                    if (GetBlockjuckScore(dealerHand) == MaxHandValue)
+                        ChangeState(GameState.CheckingHandOver);
+                    else
+                        ChangeState(GameState.WaitingForDealer);
+                    break;
+                case GameState.CheckingHandOver:
+                    if((!playerHit && !dealerHit) || (GetBlockjuckScore(playerHand) >= MaxHandValue) || (GetBlockjuckScore(dealerHand) >= MaxHandValue))
+                    {
+                        dealerHand[0].FlipOver();
+                        dealerScoreMessage = new Message(ScoreMessagePrefix + GetBlockjuckScore(dealerHand).ToString(),
+                            messageFont,
+                            new Vector2(WindowWidth - HorizontalMessageOffset, ScoreMessageTopOffset));
+                        messages.Add(dealerScoreMessage);
 
-            // check and resolve collisions between burger and teddy bears
+                        // Score calculation
+                        int playerScore = GetBlockjuckScore(playerHand);
+                        int dealerScore = GetBlockjuckScore(dealerHand);
 
-            // check and resolve collisions between burger and projectiles
-
-            // check and resolve collisions between teddy bears and projectiles
-            foreach (TeddyBear bear in bears)
-            {
-                foreach (Projectile projectile in projectiles)
-                {
-                    //Checking whether the Projectile Type
-                    if (projectile.Type == ProjectileType.FrenchFries)
-                        if (bear.CollisionRectangle.Intersects(projectile.CollisionRectangle)) // Checking for collision
+                        //Winning Condition checking
+                        if (playerScore > dealerScore && playerScore <= MaxHandValue)
                         {
-                            //Collision Activities when detected
-                            bear.Active = false;
-                            projectile.Active = false;
-                            Explosion explosion = new Explosion(explosionSpriteStrip, bear.CollisionRectangle.Center.X, bear.CollisionRectangle.Center.Y);
-                            explosions.Add(explosion);
+                            winnerMessage = new Message("PLAYER WINS!!!!!", messageFont, winnerMessageLocation);
+                        } else if (dealerScore > playerScore && dealerScore <= MaxHandValue)
+                        {
+                            winnerMessage = new Message("PLAYER LOSES!!!", messageFont, winnerMessageLocation);
+                        } else if ( dealerScore == playerScore && dealerScore <= MaxHandValue )
+                        {
+                            winnerMessage = new Message("IT'S A TIE!!!", messageFont, winnerMessageLocation);
+                        } else if (playerScore > MaxHandValue)
+                        {
+                            winnerMessage = new Message("PLAYER LOSES!!!!!", messageFont, winnerMessageLocation);
+                        } else if (dealerScore > MaxHandValue)
+                        {
+                            winnerMessage = new Message("PLAYER WINS!!!!!", messageFont, winnerMessageLocation);
                         }
-                }
-            }
 
-            // clean out inactive teddy bears and add new ones as necessary
-            for (int i = bears.Count - 1; i >= 0; i--)
-            {
-                if (!bears[i].Active)
-                {
-                    bears.RemoveAt(i);
-                }
-            }
+                        messages.Add(winnerMessage);
+                        
+                        menuButtons.Clear();
+                        menuButtons.Add(new MenuButton(quitButtonSprite,
+                            new Vector2(HorizontalMenuButtonOffset, QuitMenuButtonOffset), GameState.Exiting));
+                        ChangeState(GameState.DisplayingHandResults);
+                    } else
+                    {
+                        ChangeState(GameState.WaitingForPlayer);
+                    }
+                    break;
+                case GameState.DisplayingHandResults:
+                    break;
+                case GameState.Exiting:
+                    Exit();
+                    break;
 
-            // clean out inactive projectiles
-            for (int i = projectiles.Count - 1; i >= 0; i--)
-            {
-                if (!projectiles[i].Active)
-                {
-                    projectiles.RemoveAt(i);
-                }
-            }
-            // clean out finished explosions
-            for (int i = explosions.Count - 1; i >= 0; i--)
-            {
-                if (explosions[i].Finished)
-                {
-                    explosions.RemoveAt(i);
-                }
             }
 
             base.Update(gameTime);
@@ -239,131 +279,129 @@ namespace GameProject
         /// <param name="gameTime">Provides a snapshot of timing values.</param>
         protected override void Draw(GameTime gameTime)
         {
-            GraphicsDevice.Clear(Color.CornflowerBlue);
-
+            GraphicsDevice.Clear(Color.Goldenrod);
+						
             spriteBatch.Begin();
 
-            // draw game objects
-            burger.Draw(spriteBatch);
-            foreach (TeddyBear bear in bears)
+            // draw hands
+            foreach(Card hand in playerHand)
             {
-                bear.Draw(spriteBatch);
+                hand.Draw(spriteBatch);
             }
-            foreach (Projectile projectile in projectiles)
+            foreach (Card hand in dealerHand)
             {
-                projectile.Draw(spriteBatch);
-            }
-            foreach (Explosion explosion in explosions)
-            {
-                explosion.Draw(spriteBatch);
+                hand.Draw(spriteBatch);
             }
 
-            // draw score and health
+            // draw messages
+            foreach(Message message in messages)
+            {
+                message.Draw(spriteBatch);
+            }
+
+            // draw menu buttons
+            foreach (MenuButton menuButton in menuButtons)
+            {
+                menuButton.Draw(spriteBatch);
+            }
 
             spriteBatch.End();
 
             base.Draw(gameTime);
         }
 
-        #region Public methods
-
         /// <summary>
-        /// Gets the projectile sprite for the given projectile type
-        /// </summary>s
-        /// <param name="type">the projectile type</param>
-        /// <returns>the projectile sprite for the type</returns>
-        public static Texture2D GetProjectileSprite(ProjectileType type)
-        {
-            // replace with code to return correct projectile sprite based on projectile type
-            if (type == ProjectileType.FrenchFries)
-                return frenchFriesSprite;
-            else
-                return teddyBearProjectileSprite;
-        }
-
-        /// <summary>
-        /// Adds the given projectile to the game
+        /// Calculates the Blockjuck score for the given hand
         /// </summary>
-        /// <param name="projectile">the projectile to add</param>
-        public static void AddProjectile(Projectile projectile)
+        /// <param name="hand">the hand</param>
+        /// <returns>the Blockjuck score for the hand</returns>
+        private int GetBlockjuckScore(List<Card> hand)
         {
-            projectiles.Add(projectile);
-        }
-
-        #endregion
-
-        #region Private methods
-
-        /// <summary>
-        /// Spawns a new teddy bear at a random location
-        /// </summary>
-        private void SpawnBear()
-        {
-            // generate random location
-            int xBear = GetRandomLocation(GameConstants.SpawnBorderSize, GameConstants.WindowWidth - GameConstants.SpawnBorderSize * 2);
-            int yBear = GetRandomLocation(GameConstants.SpawnBorderSize, GameConstants.WindowHeight - GameConstants.SpawnBorderSize * 2);
-
-            // generate random velocity
-
-            float randVel = GameConstants.MinBearSpeed + RandomNumberGenerator.NextFloat(GameConstants.BearSpeedRange - GameConstants.MinBearSpeed);
-
-            float randAng = RandomNumberGenerator.NextFloat((float)Math.PI / 2);
-
-            Vector2 velBear = new Vector2(randVel * (float)Math.Cos(randAng), randVel * (float)Math.Sin(randAng));
-
-            // create new bear
-
-            TeddyBear newBear = new TeddyBear(Content, "graphics/teddybear", xBear, yBear, velBear, null, null);
-
-            // make sure we don't spawn into a collision
-
-            // add new bear to list
-            bears.Add(newBear);
-
-        }
-
-        /// <summary>
-        /// Gets a random location using the given min and range
-        /// </summary>
-        /// <param name="min">the minimum</param>
-        /// <param name="range">the range</param>
-        /// <returns>the random location</returns>
-        private int GetRandomLocation(int min, int range)
-        {
-            return min + RandomNumberGenerator.Next(range);
-        }
-
-        /// <summary>
-        /// Gets a list of collision rectangles for all the objects in the game world
-        /// </summary>
-        /// <returns>the list of collision rectangles</returns>
-        private List<Rectangle> GetCollisionRectangles()
-        {
-            List<Rectangle> collisionRectangles = new List<Rectangle>();
-            collisionRectangles.Add(burger.CollisionRectangle);
-            foreach (TeddyBear bear in bears)
+            // add up score excluding Aces
+            int numAces = 0;
+            int score = 0;
+            foreach (Card card in hand)
             {
-                collisionRectangles.Add(bear.CollisionRectangle);
+                if (card.Rank != Rank.Ace)
+                {
+                    score += GetBlockjuckCardValue(card);
+                }
+                else
+                {
+                    numAces++;
+                }
             }
-            foreach (Projectile projectile in projectiles)
+
+            // if more than one ace, only one should ever be counted as 11
+            if (numAces > 1)
             {
-                collisionRectangles.Add(projectile.CollisionRectangle);
+                // make all but the first ace count as 1
+                score += numAces - 1;
+                numAces = 1;
             }
-            foreach (Explosion explosion in explosions)
+
+            // if there's an Ace, score it the best way possible
+            if (numAces > 0)
             {
-                collisionRectangles.Add(explosion.CollisionRectangle);
+                if (score + 11 <= MaxHandValue)
+                {
+                    // counting Ace as 11 doesn't bust
+                    score += 11;
+                }
+                else
+                {
+                    // count Ace as 1
+                    score++;
+                }
             }
-            return collisionRectangles;
+
+            return score;
         }
 
         /// <summary>
-        /// Checks to see if the burger has just been killed
+        /// Gets the Blockjuck value for the given card
         /// </summary>
-        private void CheckBurgerKill()
+        /// <param name="card">the card</param>
+        /// <returns>the Blockjuck value for the card</returns>
+        private int GetBlockjuckCardValue(Card card)
         {
-
+            switch (card.Rank)
+            {
+                case Rank.Ace:
+                    return 11;
+                case Rank.King:
+                case Rank.Queen:
+                case Rank.Jack:
+                case Rank.Ten:
+                    return 10;
+                case Rank.Nine:
+                    return 9;
+                case Rank.Eight:
+                    return 8;
+                case Rank.Seven:
+                    return 7;
+                case Rank.Six:
+                    return 6;
+                case Rank.Five:
+                    return 5;
+                case Rank.Four:
+                    return 4;
+                case Rank.Three:
+                    return 3;
+                case Rank.Two:
+                    return 2;
+                default:
+                    return 0;
+            }
         }
 
-        #endregion
+        /// <summary>
+        /// Changes the state of the game
+        /// </summary>
+        /// <param name="newState">the new game state</param>
+        public static void ChangeState(GameState newState)
+        {
+            currentState = newState;
+        }
     }
 }
